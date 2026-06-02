@@ -74,7 +74,9 @@ jobs:
             echo "valid=true" >> "$GITHUB_OUTPUT"
           elif printf '%s\n' "$output" | grep -qiE 'not activated|license|requires one-time activation'; then
             echo "valid=false" >> "$GITHUB_OUTPUT"
-            echo "Wolfram Engine license was not accepted on this runner; skipping Wolfram tests."
+            echo "WOLFRAM_ENGINE_MATHPASS was provided, but Wolfram Engine rejected it on this runner." >&2
+            echo "The Wolfram tests cannot be trusted without a working kernel, so this job fails." >&2
+            exit "$status"
           else
             echo "Unexpected Docker/Wolfram validation failure." >&2
             exit "$status"
@@ -137,7 +139,7 @@ jobs:
 
       - name: Detect WolframScript
         id: wolfram
-        if: ${{ steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' }}
         shell: bash
         run: |
           if command -v wolframscript >/dev/null 2>&1; then
@@ -147,7 +149,7 @@ jobs:
           fi
 
       - name: Configure Wolfram kernel from secret
-        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true') && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
         env:
           WOLFRAMSCRIPT_KERNELPATH_SECRET: ${{ secrets.WOLFRAMSCRIPT_KERNELPATH }}
         run: |
@@ -156,11 +158,11 @@ jobs:
           fi
 
       - name: Run AUMP self-tests
-        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true') && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
         run: AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml
 
       - name: Run integration fixtures
-        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true') && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
         run: |
           AUMP/aump --path TestHarness/fixtures/passing
           AUMP/aump --path TestHarness/fixtures/sections
@@ -172,7 +174,7 @@ jobs:
           AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
 
       - name: Verify expected failures
-        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true') && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
         shell: bash
         run: |
           set +e
@@ -202,7 +204,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Explain skipped Wolfram tests
-        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outputs.valid != 'true') && steps.wolfram.outputs.available != 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available != 'true' }}
         run: |
           echo "No usable Wolfram kernel was available on this GitHub-hosted runner."
           echo "A node-locked WOLFRAM_ENGINE_MATHPASS generated on another machine may not work here."
