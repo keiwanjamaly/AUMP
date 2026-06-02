@@ -55,22 +55,32 @@ jobs:
         if: ${{ steps.community.outputs.available == 'true' }}
         run: docker pull wolframresearch/wolframengine:latest
 
-      - name: Run AUMP self-tests in Wolfram Engine container
+      - name: Validate Wolfram Engine license
+        id: community-license
         if: ${{ steps.community.outputs.available == 'true' }}
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            wolframresearch/wolframengine:latest \
+            wolframscript -code '$VersionNumber'
+
+      - name: Run AUMP self-tests in Wolfram Engine container
+        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outcome == 'success' }}
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml'
 
       - name: Run integration fixtures in Wolfram Engine container
-        if: ${{ steps.community.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outcome == 'success' }}
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '
@@ -85,11 +95,11 @@ jobs:
             '
 
       - name: Verify expected failures in Wolfram Engine container
-        if: ${{ steps.community.outputs.available == 'true' }}
+        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outcome == 'success' }}
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '
@@ -112,7 +122,7 @@ jobs:
 
       - name: Detect WolframScript
         id: wolfram
-        if: ${{ steps.community.outputs.available != 'true' }}
+        if: ${{ steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure' }}
         shell: bash
         run: |
           if command -v wolframscript >/dev/null 2>&1; then
@@ -122,7 +132,7 @@ jobs:
           fi
 
       - name: Configure Wolfram kernel from secret
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure') && steps.wolfram.outputs.available == 'true' }}
         env:
           WOLFRAMSCRIPT_KERNELPATH_SECRET: ${{ secrets.WOLFRAMSCRIPT_KERNELPATH }}
         run: |
@@ -131,11 +141,11 @@ jobs:
           fi
 
       - name: Run AUMP self-tests
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure') && steps.wolfram.outputs.available == 'true' }}
         run: AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml
 
       - name: Run integration fixtures
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure') && steps.wolfram.outputs.available == 'true' }}
         run: |
           AUMP/aump --path TestHarness/fixtures/passing
           AUMP/aump --path TestHarness/fixtures/sections
@@ -147,7 +157,7 @@ jobs:
           AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
 
       - name: Verify expected failures
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure') && steps.wolfram.outputs.available == 'true' }}
         shell: bash
         run: |
           set +e
@@ -167,7 +177,7 @@ jobs:
           test "$timeout_status" -ne 0
 
       - name: Upload Wolfram test reports
-        if: ${{ always() && (steps.community.outputs.available == 'true' || steps.wolfram.outputs.available == 'true') }}
+        if: ${{ always() && ((steps.community.outputs.available == 'true' && steps.community-license.outcome == 'success') || steps.wolfram.outputs.available == 'true') }}
         uses: actions/upload-artifact@v4
         with:
           name: wolfram-test-reports
@@ -177,7 +187,8 @@ jobs:
           if-no-files-found: ignore
 
       - name: Explain skipped Wolfram tests
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available != 'true' }}
+        if: ${{ (steps.community.outputs.available != 'true' || steps.community-license.outcome == 'failure') && steps.wolfram.outputs.available != 'true' }}
         run: |
-          echo "No Wolfram Engine Community mathpass secret and no host wolframscript were available."
-          echo "Set WOLFRAM_ENGINE_MATHPASS to run with the official wolframresearch/wolframengine container."
+          echo "No usable Wolfram kernel was available on this GitHub-hosted runner."
+          echo "A node-locked WOLFRAM_ENGINE_MATHPASS generated on another machine may not work here."
+          echo "Use a self-hosted runner with the activated container, or use Wolfram on-demand licensing via WOLFRAMSCRIPT_ENTITLEMENTID."
