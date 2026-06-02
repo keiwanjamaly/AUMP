@@ -60,7 +60,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml'
@@ -70,7 +70,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '
@@ -89,7 +89,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -v "$PWD/.wolfram/Licensing/mathpass:/usr/local/Wolfram/WolframEngine/14.3/Configuration/Licensing/mathpass:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '

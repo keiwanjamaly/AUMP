@@ -52,6 +52,7 @@ run_probe() {
   local output_file pid elapsed status
   output_file="${TMPDIR:-/tmp}/aump-wolframscript-probe-$$.txt"
 
+  # shellcheck disable=SC2016
   wolframscript -code '$VersionNumber' >"$output_file" 2>&1 &
   pid="$!"
   elapsed=0
