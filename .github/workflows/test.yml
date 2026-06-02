@@ -1,0 +1,183 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell-and-bats:
+    name: Shell and Bats
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: Check shell scripts
+        run: |
+          shellcheck AUMP/aump
+          test -x AUMP/aump
+          test -x AUMP/Runner.wls
+          test -x AUMP/Worker.wls
+
+      - name: Run Bats harness
+        run: bats TestHarness/bats
+
+  wolfram:
+    name: Wolfram Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Wolfram Engine Community license
+        id: community
+        env:
+          WOLFRAM_ENGINE_MATHPASS: ${{ secrets.WOLFRAM_ENGINE_MATHPASS }}
+        shell: bash
+        run: |
+          if [ -n "$WOLFRAM_ENGINE_MATHPASS" ]; then
+            mkdir -p .wolfram/Licensing
+            printf '%s\n' "$WOLFRAM_ENGINE_MATHPASS" > .wolfram/Licensing/mathpass
+            chmod 600 .wolfram/Licensing/mathpass
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull Wolfram Engine image
+        if: ${{ steps.community.outputs.available == 'true' }}
+        run: docker pull wolframresearch/wolframengine:latest
+
+      - name: Run AUMP self-tests in Wolfram Engine container
+        if: ${{ steps.community.outputs.available == 'true' }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -w /work \
+            wolframresearch/wolframengine:latest \
+            bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml'
+
+      - name: Run integration fixtures in Wolfram Engine container
+        if: ${{ steps.community.outputs.available == 'true' }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -w /work \
+            wolframresearch/wolframengine:latest \
+            bash -lc '
+              AUMP/aump --path TestHarness/fixtures/passing
+              AUMP/aump --path TestHarness/fixtures/sections
+              AUMP/aump --path TestHarness/fixtures/isolation
+              AUMP/aump --path TestHarness/fixtures/output --reporter json
+              AUMP/aump --path TestHarness/fixtures/skip --reporter junit --output aump-skip-tests.xml
+              AUMP/aump -- --path TestHarness/fixtures/passing
+              AUMP/aump --path TestHarness/fixtures/discovery --pattern Selected.m --list-tests
+              AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
+            '
+
+      - name: Verify expected failures in Wolfram Engine container
+        if: ${{ steps.community.outputs.available == 'true' }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+            -w /work \
+            wolframresearch/wolframengine:latest \
+            bash -lc '
+              set +e
+              AUMP/aump --path TestHarness/fixtures/failing --tag check --reporter json
+              check_status=$?
+              AUMP/aump --path TestHarness/fixtures/failing --tag require --reporter json
+              require_status=$?
+              AUMP/aump --path TestHarness/fixtures/syntax_error
+              syntax_status=$?
+              AUMP/aump --path TestHarness/fixtures/timeout --timeout 1 --reporter json
+              timeout_status=$?
+              set -e
+
+              test "$check_status" -ne 0
+              test "$require_status" -ne 0
+              test "$syntax_status" -eq 2
+              test "$timeout_status" -ne 0
+            '
+
+      - name: Detect WolframScript
+        id: wolfram
+        if: ${{ steps.community.outputs.available != 'true' }}
+        shell: bash
+        run: |
+          if command -v wolframscript >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure Wolfram kernel from secret
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        env:
+          WOLFRAMSCRIPT_KERNELPATH_SECRET: ${{ secrets.WOLFRAMSCRIPT_KERNELPATH }}
+        run: |
+          if [ -n "$WOLFRAMSCRIPT_KERNELPATH_SECRET" ]; then
+            echo "WOLFRAMSCRIPT_KERNELPATH=$WOLFRAMSCRIPT_KERNELPATH_SECRET" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run AUMP self-tests
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        run: AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml
+
+      - name: Run integration fixtures
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        run: |
+          AUMP/aump --path TestHarness/fixtures/passing
+          AUMP/aump --path TestHarness/fixtures/sections
+          AUMP/aump --path TestHarness/fixtures/isolation
+          AUMP/aump --path TestHarness/fixtures/output --reporter json
+          AUMP/aump --path TestHarness/fixtures/skip --reporter junit --output aump-skip-tests.xml
+          AUMP/aump -- --path TestHarness/fixtures/passing
+          AUMP/aump --path TestHarness/fixtures/discovery --pattern Selected.m --list-tests
+          AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
+
+      - name: Verify expected failures
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
+        shell: bash
+        run: |
+          set +e
+          AUMP/aump --path TestHarness/fixtures/failing --tag check --reporter json
+          check_status=$?
+          AUMP/aump --path TestHarness/fixtures/failing --tag require --reporter json
+          require_status=$?
+          AUMP/aump --path TestHarness/fixtures/syntax_error
+          syntax_status=$?
+          AUMP/aump --path TestHarness/fixtures/timeout --timeout 1 --reporter json
+          timeout_status=$?
+          set -e
+
+          test "$check_status" -ne 0
+          test "$require_status" -ne 0
+          test "$syntax_status" -eq 2
+          test "$timeout_status" -ne 0
+
+      - name: Upload Wolfram test reports
+        if: ${{ always() && (steps.community.outputs.available == 'true' || steps.wolfram.outputs.available == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfram-test-reports
+          path: |
+            aump-self-tests.xml
+            aump-skip-tests.xml
+          if-no-files-found: ignore
+
+      - name: Explain skipped Wolfram tests
+        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available != 'true' }}
+        run: |
+          echo "No Wolfram Engine Community mathpass secret and no host wolframscript were available."
+          echo "Set WOLFRAM_ENGINE_MATHPASS to run with the official wolframresearch/wolframengine container."
