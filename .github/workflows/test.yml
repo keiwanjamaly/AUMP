@@ -49,16 +49,6 @@ jobs:
       - name: Pull Wolfram Engine image
         run: docker pull wolframresearch/wolframengine:latest
 
-      - name: Validate WolframScript entitlement
-        env:
-          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
-        shell: bash
-        run: |
-          docker run --rm \
-            -e WOLFRAMSCRIPT_ENTITLEMENTID \
-            wolframresearch/wolframengine:latest \
-            wolframscript -code '$VersionNumber'
-
       - name: Run AUMP self-tests in Wolfram Engine container
         env:
           WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
