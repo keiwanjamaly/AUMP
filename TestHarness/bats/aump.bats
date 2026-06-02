@@ -191,3 +191,13 @@ EOF
   [[ "$report" == *"skipped=\"1\""* ]]
   [[ "$report" == *"<skipped message="* ]]
 }
+
+@test "output write failures are reported" {
+  require_kernel
+
+  AUMP_TEST_TMPDIR="$(mktemp -d)"
+  output_path="$AUMP_TEST_TMPDIR/missing/report.xml"
+  run "$AUMP_BIN" --path "$REPO_ROOT/TestHarness/fixtures/skip" --reporter junit --output "$output_path"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"AUMP: could not write report to"* ]]
+}

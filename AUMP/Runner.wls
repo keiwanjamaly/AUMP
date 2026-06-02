@@ -181,7 +181,10 @@ report = Switch[
 ];
 
 If[outputPath =!= "",
-    Export[outputPath, report, "Text"],
+    If[Export[outputPath, report, "Text"] === $Failed,
+        WriteString[$Output, "AUMP: could not write report to " <> outputPath <> "\n"];
+        Exit[2]
+    ],
     WriteString[$Output, report]
 ];
 

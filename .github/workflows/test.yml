@@ -49,6 +49,11 @@ jobs:
       - name: Pull Wolfram Engine image
         run: docker pull wolframresearch/wolframengine:latest
 
+      - name: Prepare Wolfram report directory
+        run: |
+          mkdir -p aump-reports
+          chmod 0777 aump-reports
+
       - name: Run AUMP self-tests in Wolfram Engine container
         env:
           WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
@@ -58,7 +63,7 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             wolframresearch/wolframengine:latest \
-            bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml'
+            bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-reports/aump-self-tests.xml'
 
       - name: Run integration fixtures in Wolfram Engine container
         env:
@@ -74,7 +79,7 @@ jobs:
               AUMP/aump --path TestHarness/fixtures/sections
               AUMP/aump --path TestHarness/fixtures/isolation
               AUMP/aump --path TestHarness/fixtures/output --reporter json
-              AUMP/aump --path TestHarness/fixtures/skip --reporter junit --output aump-skip-tests.xml
+              AUMP/aump --path TestHarness/fixtures/skip --reporter junit --output aump-reports/aump-skip-tests.xml
               AUMP/aump -- --path TestHarness/fixtures/passing
               AUMP/aump --path TestHarness/fixtures/discovery --pattern Selected.m --list-tests
               AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
@@ -107,12 +112,15 @@ jobs:
               test "$timeout_status" -ne 0
             '
 
+      - name: Check Wolfram test reports
+        run: |
+          test -s aump-reports/aump-self-tests.xml
+          test -s aump-reports/aump-skip-tests.xml
+
       - name: Upload Wolfram test reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: wolfram-test-reports
-          path: |
-            aump-self-tests.xml
-            aump-skip-tests.xml
-          if-no-files-found: ignore
+          path: aump-reports/*.xml
+          if-no-files-found: error
