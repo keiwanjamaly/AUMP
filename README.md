@@ -80,17 +80,15 @@ bats TestHarness/bats
 The Bats tests skip Wolfram-dependent cases when no Wolfram kernel can be found.
 
 GitHub Actions runs the Bats harness on every push and pull request. Wolfram
-self-tests can run with the free Wolfram Engine Community Edition by setting the
-`WOLFRAM_ENGINE_MATHPASS` repository secret to the contents of an activated
-Wolfram Engine `mathpass` file. The workflow mounts that secret into Wolfram's
-official `wolframresearch/wolframengine` Docker image.
+self-tests run in Wolfram's official `wolframresearch/wolframengine` Docker
+image and require on-demand licensing through the repository secret
+`WOLFRAMSCRIPT_ENTITLEMENTID`.
 
-To create the secret, activate the image once interactively as described by the
-official Docker image documentation, print `$PasswordFile // FilePrint`, and
-store the single printed `mathpass` line as `WOLFRAM_ENGINE_MATHPASS`.
-Community Edition activation is node-locked and limited by Wolfram's terms, so
-this uses one of the free activations associated with the Wolfram ID.
+Create the entitlement from an authenticated Wolfram Language session with
+`CreateLicenseEntitlement[...]`, copy `entitlement["EntitlementID"]`, and store
+that `O-...` value as `WOLFRAMSCRIPT_ENTITLEMENTID`. The workflow fails if the
+secret is missing or rejected by WolframScript.
 
-If no `WOLFRAM_ENGINE_MATHPASS` secret is configured, the workflow falls back to
-a runner-provided `wolframscript`. If that runner needs an explicit kernel path,
-set the `WOLFRAMSCRIPT_KERNELPATH` repository secret.
+Node-locked `mathpass` files are not used by the GitHub-hosted workflow because
+they are tied to a stable machine identity and are rejected on fresh hosted
+runners.

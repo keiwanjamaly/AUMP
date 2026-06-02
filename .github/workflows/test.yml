@@ -36,68 +36,47 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Prepare Wolfram Engine Community license
-        id: community
+      - name: Require WolframScript entitlement
         env:
-          WOLFRAM_ENGINE_MATHPASS: ${{ secrets.WOLFRAM_ENGINE_MATHPASS }}
+          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
         shell: bash
         run: |
-          if [ -n "$WOLFRAM_ENGINE_MATHPASS" ]; then
-            mkdir -p .wolfram/Licensing
-            printf '%s\n' "$WOLFRAM_ENGINE_MATHPASS" > .wolfram/Licensing/mathpass
-            chmod 600 .wolfram/Licensing/mathpass
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$WOLFRAMSCRIPT_ENTITLEMENTID" ]; then
+            echo "WOLFRAMSCRIPT_ENTITLEMENTID is required for Wolfram tests on GitHub-hosted runners." >&2
+            exit 1
           fi
 
       - name: Pull Wolfram Engine image
-        if: ${{ steps.community.outputs.available == 'true' }}
         run: docker pull wolframresearch/wolframengine:latest
 
-      - name: Validate Wolfram Engine license
-        id: community-license
-        if: ${{ steps.community.outputs.available == 'true' }}
+      - name: Validate WolframScript entitlement
+        env:
+          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
         shell: bash
         run: |
-          set +e
-          output="$(docker run --rm \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
+          docker run --rm \
+            -e WOLFRAMSCRIPT_ENTITLEMENTID \
             wolframresearch/wolframengine:latest \
-            wolframscript -code '$VersionNumber' 2>&1)"
-          status=$?
-          set -e
-
-          printf '%s\n' "$output"
-
-          if [ "$status" -eq 0 ]; then
-            echo "valid=true" >> "$GITHUB_OUTPUT"
-          elif printf '%s\n' "$output" | grep -qiE 'not activated|license|requires one-time activation'; then
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            echo "WOLFRAM_ENGINE_MATHPASS was provided, but Wolfram Engine rejected it on this runner." >&2
-            echo "The Wolfram tests cannot be trusted without a working kernel, so this job fails." >&2
-            exit "$status"
-          else
-            echo "Unexpected Docker/Wolfram validation failure." >&2
-            exit "$status"
-          fi
+            wolframscript -code '$VersionNumber'
 
       - name: Run AUMP self-tests in Wolfram Engine container
-        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outputs.valid == 'true' }}
+        env:
+          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
         run: |
           docker run --rm \
+            -e WOLFRAMSCRIPT_ENTITLEMENTID \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc 'AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml'
 
       - name: Run integration fixtures in Wolfram Engine container
-        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outputs.valid == 'true' }}
+        env:
+          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
         run: |
           docker run --rm \
+            -e WOLFRAMSCRIPT_ENTITLEMENTID \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '
@@ -112,11 +91,12 @@ jobs:
             '
 
       - name: Verify expected failures in Wolfram Engine container
-        if: ${{ steps.community.outputs.available == 'true' && steps.community-license.outputs.valid == 'true' }}
+        env:
+          WOLFRAMSCRIPT_ENTITLEMENTID: ${{ secrets.WOLFRAMSCRIPT_ENTITLEMENTID }}
         run: |
           docker run --rm \
+            -e WOLFRAMSCRIPT_ENTITLEMENTID \
             -v "$PWD:/work" \
-            -v "$PWD/.wolfram/Licensing:/usr/share/Mathematica/Licensing:ro" \
             -w /work \
             wolframresearch/wolframengine:latest \
             bash -lc '
@@ -137,64 +117,8 @@ jobs:
               test "$timeout_status" -ne 0
             '
 
-      - name: Detect WolframScript
-        id: wolfram
-        if: ${{ steps.community.outputs.available != 'true' }}
-        shell: bash
-        run: |
-          if command -v wolframscript >/dev/null 2>&1; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Configure Wolfram kernel from secret
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
-        env:
-          WOLFRAMSCRIPT_KERNELPATH_SECRET: ${{ secrets.WOLFRAMSCRIPT_KERNELPATH }}
-        run: |
-          if [ -n "$WOLFRAMSCRIPT_KERNELPATH_SECRET" ]; then
-            echo "WOLFRAMSCRIPT_KERNELPATH=$WOLFRAMSCRIPT_KERNELPATH_SECRET" >> "$GITHUB_ENV"
-          fi
-
-      - name: Run AUMP self-tests
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
-        run: AUMP/aump --path Tests --reporter junit --output aump-self-tests.xml
-
-      - name: Run integration fixtures
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
-        run: |
-          AUMP/aump --path TestHarness/fixtures/passing
-          AUMP/aump --path TestHarness/fixtures/sections
-          AUMP/aump --path TestHarness/fixtures/isolation
-          AUMP/aump --path TestHarness/fixtures/output --reporter json
-          AUMP/aump --path TestHarness/fixtures/skip --reporter junit --output aump-skip-tests.xml
-          AUMP/aump -- --path TestHarness/fixtures/passing
-          AUMP/aump --path TestHarness/fixtures/discovery --pattern Selected.m --list-tests
-          AUMP/aump --path TestHarness/fixtures/package/tests --wl-path TestHarness/fixtures/package --init TestHarness/fixtures/package/init.m
-
-      - name: Verify expected failures
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available == 'true' }}
-        shell: bash
-        run: |
-          set +e
-          AUMP/aump --path TestHarness/fixtures/failing --tag check --reporter json
-          check_status=$?
-          AUMP/aump --path TestHarness/fixtures/failing --tag require --reporter json
-          require_status=$?
-          AUMP/aump --path TestHarness/fixtures/syntax_error
-          syntax_status=$?
-          AUMP/aump --path TestHarness/fixtures/timeout --timeout 1 --reporter json
-          timeout_status=$?
-          set -e
-
-          test "$check_status" -ne 0
-          test "$require_status" -ne 0
-          test "$syntax_status" -eq 2
-          test "$timeout_status" -ne 0
-
       - name: Upload Wolfram test reports
-        if: ${{ always() && ((steps.community.outputs.available == 'true' && steps.community-license.outputs.valid == 'true') || steps.wolfram.outputs.available == 'true') }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: wolfram-test-reports
@@ -202,10 +126,3 @@ jobs:
             aump-self-tests.xml
             aump-skip-tests.xml
           if-no-files-found: ignore
-
-      - name: Explain skipped Wolfram tests
-        if: ${{ steps.community.outputs.available != 'true' && steps.wolfram.outputs.available != 'true' }}
-        run: |
-          echo "No usable Wolfram kernel was available on this GitHub-hosted runner."
-          echo "A node-locked WOLFRAM_ENGINE_MATHPASS generated on another machine may not work here."
-          echo "Use a self-hosted runner with the activated container, or use Wolfram on-demand licensing via WOLFRAMSCRIPT_ENTITLEMENTID."
