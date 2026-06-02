@@ -5,6 +5,12 @@ setup() {
   AUMP_BIN="$REPO_ROOT/AUMP/aump"
 }
 
+teardown() {
+  if [ -n "${AUMP_TEST_TMPDIR:-}" ]; then
+    rm -rf "$AUMP_TEST_TMPDIR"
+  fi
+}
+
 kernel_available() {
   wolframscript -code '$VersionNumber' >/dev/null 2>&1
 }
@@ -23,6 +29,30 @@ require_kernel() {
   run "$AUMP_BIN" --path "$REPO_ROOT/TestHarness/fixtures/passing"
   [ "$status" -eq 127 ]
   [[ "$output" == *"no Wolfram kernel is configured"* || "$output" == *"wolframscript was not found"* ]]
+}
+
+@test "wrapper passes WolframScript entitlement to probe and runner" {
+  AUMP_TEST_TMPDIR="$(mktemp -d)"
+  fake_bin="$AUMP_TEST_TMPDIR/bin"
+  mkdir -p "$fake_bin"
+
+  cat >"$fake_bin/wolframscript" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AUMP_FAKE_WOLFRAMSCRIPT_ARGS"
+exit 0
+EOF
+  chmod +x "$fake_bin/wolframscript"
+
+  run env \
+    "AUMP_FAKE_WOLFRAMSCRIPT_ARGS=$AUMP_TEST_TMPDIR/args" \
+    "WOLFRAMSCRIPT_ENTITLEMENTID=O-test-entitlement" \
+    "PATH=$fake_bin:$PATH" \
+    "$AUMP_BIN" --path "$REPO_ROOT/TestHarness/fixtures/passing"
+
+  [ "$status" -eq 0 ]
+  args="$(cat "$AUMP_TEST_TMPDIR/args")"
+  [[ "$args" == *"-entitlement O-test-entitlement -code"* ]]
+  [[ "$args" == *"-entitlement O-test-entitlement -script"* ]]
 }
 
 @test "passing suite exits zero" {

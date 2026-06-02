@@ -2,6 +2,11 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+wolframscript_cmd=(wolframscript)
+
+if [[ -n "${WOLFRAMSCRIPT_ENTITLEMENTID:-}" ]]; then
+  wolframscript_cmd+=(-entitlement "$WOLFRAMSCRIPT_ENTITLEMENTID")
+fi
 
 find_wolfram_kernel() {
   local candidates=()
@@ -53,7 +58,7 @@ run_probe() {
   output_file="${TMPDIR:-/tmp}/aump-wolframscript-probe-$$.txt"
 
   # shellcheck disable=SC2016
-  wolframscript -code '$VersionNumber' >"$output_file" 2>&1 &
+  "${wolframscript_cmd[@]}" -code '$VersionNumber' >"$output_file" 2>&1 &
   pid="$!"
   elapsed=0
 
@@ -87,11 +92,11 @@ if ! command -v wolframscript >/dev/null 2>&1; then
 fi
 
 if ! run_probe; then
-  if [[ -z "${WOLFRAMSCRIPT_KERNELPATH:-}" && -z "${WolframKernel:-}" ]]; then
+  if [[ -z "${WOLFRAMSCRIPT_ENTITLEMENTID:-}" && -z "${WOLFRAMSCRIPT_KERNELPATH:-}" && -z "${WolframKernel:-}" ]]; then
     if discovered_kernel="$(find_wolfram_kernel)"; then
       export WOLFRAMSCRIPT_KERNELPATH="$discovered_kernel"
       if run_probe; then
-        exec wolframscript -script "$script_dir/Runner.wls" "$@"
+        exec "${wolframscript_cmd[@]}" -script "$script_dir/Runner.wls" "$@"
       fi
     fi
   fi
@@ -108,4 +113,4 @@ if ! run_probe; then
   exit 127
 fi
 
-exec wolframscript -script "$script_dir/Runner.wls" "$@"
+exec "${wolframscript_cmd[@]}" -script "$script_dir/Runner.wls" "$@"

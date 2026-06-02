@@ -75,13 +75,21 @@ If[listTests,
     Exit[0];
 ];
 
+wolframscriptCommand[] := Module[{entitlement = Environment["WOLFRAMSCRIPT_ENTITLEMENTID"]},
+    If[StringQ[entitlement] && entitlement =!= "",
+        {"wolframscript", "-entitlement", entitlement},
+        {"wolframscript"}
+    ]
+];
+
 runWorker[leaf_] := Module[{cmd, raw, result, status},
-    cmd = {
-        "wolframscript", "-script", FileNameJoin[{scriptDir, "Worker.wls"}],
+    cmd = Join[
+        wolframscriptCommand[],
+        {"-script", FileNameJoin[{scriptDir, "Worker.wls"}],
         "--project-root", projectRoot,
         "--test-file", leaf["File"],
-        "--test-index", ToString[leaf["FileIndex"]]
-    };
+        "--test-index", ToString[leaf["FileIndex"]]}
+    ];
     If[Lookup[leaf, "SectionPath", {}] =!= {}, cmd = Join[cmd, {"--section-path", StringRiffle[leaf["SectionPath"], "\t"]}]];
     Scan[(cmd = Join[cmd, {"--wl-path", #}]) &, wlPaths];
     Scan[(cmd = Join[cmd, {"--init", #}]) &, initFiles];
